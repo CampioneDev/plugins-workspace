@@ -15,6 +15,7 @@ All fetch operations are enabled.
 
 """
 permissions = [
+  "allow-set-client-options",
   "allow-fetch",
   "allow-fetch-cancel",
   "allow-fetch-read-body",

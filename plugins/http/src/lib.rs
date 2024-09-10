@@ -17,6 +17,7 @@ mod error;
 mod scope;
 
 pub(crate) struct Http {
+    client: std::sync::Mutex<Option<reqwest::Client>>,
     #[cfg(feature = "cookies")]
     cookies_jar: std::sync::Arc<reqwest::cookie::Jar>,
 }
@@ -25,6 +26,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::<R>::new("http")
         .setup(|app, _| {
             let state = Http {
+                client: std::sync::Mutex::new(None),
                 #[cfg(feature = "cookies")]
                 cookies_jar: std::sync::Arc::new(reqwest::cookie::Jar::default()),
             };
@@ -34,6 +36,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::set_client_options,
             commands::fetch,
             commands::fetch_cancel,
             commands::fetch_send,

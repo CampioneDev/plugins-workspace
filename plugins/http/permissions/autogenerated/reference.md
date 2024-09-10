@@ -13,6 +13,7 @@ All fetch operations are enabled.
 
 
 
+- `allow-set-client-options`
 - `allow-fetch`
 - `allow-fetch-cancel`
 - `allow-fetch-read-body`
@@ -127,6 +128,32 @@ Enables the fetch_send command without any pre-configured scope.
 <td>
 
 Denies the fetch_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`http:allow-set-client-options`
+
+</td>
+<td>
+
+Enables the set_client_options command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`http:deny-set-client-options`
+
+</td>
+<td>
+
+Denies the set_client_options command without any pre-configured scope.
 
 </td>
 </tr>
