@@ -92,6 +92,8 @@ export async function setClientOptions(options: ClientOptions) {
 
 const ERROR_REQUEST_CANCELLED = 'Request canceled'
 
+export const UNSAFE_HEADER_PREFIX = 'http_unsafe_header_'
+
 /**
  * Fetch a resource from the network. It returns a `Promise` that resolves to the
  * `Response` to that `Request`, whether it is successful or not.
@@ -117,41 +119,24 @@ export async function fetch(
     throw new Error(ERROR_REQUEST_CANCELLED)
   }
 
-  const headers = init?.headers
-    ? init.headers instanceof Headers
-      ? init.headers
-      : new Headers(init.headers)
-    : new Headers()
-
   const req = new Request(input, init)
   const buffer = await req.arrayBuffer()
   const data =
     buffer.byteLength !== 0 ? Array.from(new Uint8Array(buffer)) : null
 
-  // append new headers created by the browser `Request` implementation,
-  // if not already declared by the caller of this function
-  for (const [key, value] of req.headers) {
-    if (!headers.get(key)) {
-      headers.set(key, value)
-    }
+  const mappedHeaders: [string,string][] = []
+
+  for (let [key, value] of req.headers.entries()) {
+    /**
+     * NOTE: This is a workaround that allows us to set the `origin` header,
+     * normally forbidden by the browser.
+     *
+     * The `unsafe-headers` feature of `tauri-plugin-http` must be enabled!
+     */
+    if (key.startsWith(UNSAFE_HEADER_PREFIX))
+      key = key.substring(UNSAFE_HEADER_PREFIX.length)
+    mappedHeaders.push([key, value])
   }
-
-  const headersArray =
-    headers instanceof Headers
-      ? Array.from(headers.entries())
-      : Array.isArray(headers)
-        ? headers
-        : Object.entries(headers)
-
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const mappedHeaders: Array<[string, string]> = headersArray.map(
-    ([name, val]) => [
-      name,
-      // we need to ensure we have all header values as strings
-      // eslint-disable-next-line
-      typeof val === 'string' ? val : (val as any).toString()
-    ]
-  )
 
   // abort early here if needed
   if (signal?.aborted) {
