@@ -22,6 +22,7 @@ mod scope;
 const COOKIES_FILENAME: &str = ".cookies";
 
 pub(crate) struct Http {
+    client: std::sync::Mutex<Option<reqwest::Client>>,
     #[cfg(feature = "cookies")]
     cookies_jar: std::sync::Arc<crate::reqwest_cookie_store::CookieStoreMutex>,
 }
@@ -56,6 +57,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             };
 
             let state = Http {
+                client: std::sync::Mutex::new(None),
                 #[cfg(feature = "cookies")]
                 cookies_jar: std::sync::Arc::new(cookies_jar),
             };
@@ -81,6 +83,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::set_client_options,
             commands::fetch,
             commands::fetch_cancel,
             commands::fetch_send,

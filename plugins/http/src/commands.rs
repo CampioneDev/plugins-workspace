@@ -90,6 +90,12 @@ pub struct ClientConfig {
     url: url::Url,
     headers: Vec<(String, String)>,
     data: Option<Vec<u8>>,
+    options: Option<ClientOptions>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientOptions {
     connect_timeout: Option<u64>,
     max_redirections: Option<usize>,
     proxy: Option<Proxy>,
@@ -174,6 +180,71 @@ fn attach_proxy(
     Ok(builder)
 }
 
+fn build_client(
+    options: Option<ClientOptions>,
+    cookies_jar: std::sync::Arc<crate::reqwest_cookie_store::CookieStoreMutex>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::ClientBuilder::new();
+
+    if let Some(options) = options {
+        let ClientOptions {
+            danger,
+            connect_timeout,
+            max_redirections,
+            proxy,
+        } = options;
+
+        if let Some(danger_config) = danger {
+            #[cfg(not(feature = "dangerous-settings"))]
+            {
+                #[cfg(debug_assertions)]
+                {
+                    eprintln!("[\x1b[33mWARNING\x1b[0m] using dangerous settings requires `dangerous-settings` feature flag in your Cargo.toml");
+                }
+                let _ = danger_config;
+                return Err(Error::DangerousSettings);
+            }
+            #[cfg(feature = "dangerous-settings")]
+            {
+                builder = builder
+                    .danger_accept_invalid_certs(danger_config.accept_invalid_certs)
+                    .danger_accept_invalid_hostnames(danger_config.accept_invalid_hostnames)
+            }
+        }
+
+        if let Some(timeout) = connect_timeout {
+            builder = builder.connect_timeout(Duration::from_millis(timeout));
+        }
+
+        if let Some(max_redirections) = max_redirections {
+            builder = builder.redirect(if max_redirections == 0 {
+                Policy::none()
+            } else {
+                Policy::limited(max_redirections)
+            });
+        }
+
+        if let Some(proxy_config) = proxy {
+            builder = attach_proxy(proxy_config, builder)?;
+        }
+    }
+
+    #[cfg(feature = "cookies")]
+    {
+        builder = builder.cookie_provider(cookies_jar.clone());
+    }
+
+    Ok(builder.build()?)
+}
+
+#[command]
+pub fn set_client_options(state: State<'_, Http>, options: ClientOptions) -> crate::Result<()> {
+    let new_client = build_client(Some(options), state.cookies_jar.clone())?;
+    let mut client = state.client.lock().unwrap();
+    *client = Some(new_client.clone());
+    Ok(())
+}
+
 #[command]
 pub async fn fetch<R: Runtime>(
     webview: Webview<R>,
@@ -187,10 +258,7 @@ pub async fn fetch<R: Runtime>(
         url,
         headers: headers_raw,
         data,
-        connect_timeout,
-        max_redirections,
-        proxy,
-        danger,
+        options,
     } = client_config;
 
     let scheme = url.scheme();
@@ -228,48 +296,23 @@ pub async fn fetch<R: Runtime>(
             )
             .is_allowed(&url)
             {
-                let mut builder = reqwest::ClientBuilder::new();
+                let client = {
+                    let mut client = state.client.lock().unwrap();
 
-                if let Some(danger_config) = danger {
-                    #[cfg(not(feature = "dangerous-settings"))]
-                    {
-                        #[cfg(debug_assertions)]
-                        {
-                            eprintln!("[\x1b[33mWARNING\x1b[0m] using dangerous settings requires `dangerous-settings` feature flag in your Cargo.toml");
-                        }
-                        let _ = danger_config;
-                        return Err(Error::DangerousSettings);
-                    }
-                    #[cfg(feature = "dangerous-settings")]
-                    {
-                        builder = builder
-                            .danger_accept_invalid_certs(danger_config.accept_invalid_certs)
-                            .danger_accept_invalid_hostnames(danger_config.accept_invalid_hostnames)
-                    }
-                }
-
-                if let Some(timeout) = connect_timeout {
-                    builder = builder.connect_timeout(Duration::from_millis(timeout));
-                }
-
-                if let Some(max_redirections) = max_redirections {
-                    builder = builder.redirect(if max_redirections == 0 {
-                        Policy::none()
+                    // We build a new client instance when...
+                    // - it's doesn't exist in the state already
+                    // - options are explicitly provided in the fetch request (since
+                    // `reqwest::Client` is immutable and cannot be changed after creation)
+                    if client.is_none() || options.is_some() {
+                        let new_client = build_client(options, state.cookies_jar.clone())?;
+                        *client = Some(new_client.clone());
+                        new_client
                     } else {
-                        Policy::limited(max_redirections)
-                    });
-                }
+                        client.as_ref().unwrap().clone()
+                    }
+                };
 
-                if let Some(proxy_config) = proxy {
-                    builder = attach_proxy(proxy_config, builder)?;
-                }
-
-                #[cfg(feature = "cookies")]
-                {
-                    builder = builder.cookie_provider(state.cookies_jar.clone());
-                }
-
-                let mut request = builder.build()?.request(method.clone(), url);
+                let mut request = client.request(method.clone(), url);
 
                 // POST and PUT requests should always have a 0 length content-length,
                 // if there is no body. https://fetch.spec.whatwg.org/#http-network-or-cache-fetch

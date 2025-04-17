@@ -90,6 +90,10 @@ export interface ClientOptions {
   danger?: DangerousSettings
 }
 
+export async function setClientOptions(options: ClientOptions) {
+  return await invoke('plugin:http|set_client_options', { options })
+}
+
 /**
  * Configuration for dangerous settings on the client such as disabling SSL verification.
  *
@@ -124,25 +128,13 @@ const ERROR_REQUEST_CANCELLED = 'Request cancelled'
  */
 export async function fetch(
   input: URL | Request | string,
-  init?: RequestInit & ClientOptions
+  init?: RequestInit,
+  options?: ClientOptions,
 ): Promise<Response> {
   // Optimistically check for abort signal and avoid doing any work
   const signal = init?.signal
   if (signal?.aborted) {
     throw new Error(ERROR_REQUEST_CANCELLED)
-  }
-
-  const maxRedirections = init?.maxRedirections
-  const connectTimeout = init?.connectTimeout
-  const proxy = init?.proxy
-  const danger = init?.danger
-
-  // Remove these fields before creating the request
-  if (init) {
-    delete init.maxRedirections
-    delete init.connectTimeout
-    delete init.proxy
-    delete init.danger
   }
 
   const headers = init?.headers
@@ -192,11 +184,8 @@ export async function fetch(
       url: req.url,
       headers: mappedHeaders,
       data,
-      maxRedirections,
-      connectTimeout,
-      proxy,
-      danger
-    }
+      options,
+    },
   })
 
   const abort = () => invoke('plugin:http|fetch_cancel', { rid })
